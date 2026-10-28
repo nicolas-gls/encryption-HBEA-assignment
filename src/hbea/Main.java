@@ -29,8 +29,12 @@ public class Main {
         for (int i = 4; i < 8; i++) System.out.print(BitUtils.toHex(ks[i]) + " ");
         System.out.println();
 
-        int[] rk1 = BitUtils.permute(ks[0], HbeaTables.E);
-        System.out.println("\nRK1 = E(KS1): " + BitUtils.toHex(rk1));
+        // Precompute all 8 round keys: RK(i) = E(KS(i))
+        int[][] roundKeys = new int[8][48];
+        for (int i = 0; i < 8; i++) {
+            roundKeys[i] = BitUtils.permute(ks[i], HbeaTables.E);
+        }
+        System.out.println("\nRK1 = E(KS1): " + BitUtils.toHex(roundKeys[0]));
 
         // Task 4 Verification (Block 1)
         byte[] msgBytes = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -43,21 +47,20 @@ public class Main {
         int[] ipBlock1 = BitUtils.permute(block1, HbeaTables.IP);
         System.out.println("IP(Block 1):          " + BitUtils.toHex(ipBlock1));
 
-        int[] L0 = new int[32];
-        int[] R0 = new int[32];
-        System.arraycopy(ipBlock1, 0, L0, 0, 32);
-        System.arraycopy(ipBlock1, 32, R0, 0, 32);
-        System.out.println("L0 = " + BitUtils.toHex(L0) + "   R0 = " + BitUtils.toHex(R0));
+        int[] L = new int[32];
+        int[] R = new int[32];
+        System.arraycopy(ipBlock1, 0, L, 0, 32);
+        System.arraycopy(ipBlock1, 32, R, 0, 32);
+        System.out.println("L0 = " + BitUtils.toHex(L) + "   R0 = " + BitUtils.toHex(R));
 
-        int[] eR0 = BitUtils.permute(R0, HbeaTables.E);
+        // Detailed S-box extraction trace for Round 1
+        int[] eR0 = BitUtils.permute(R, HbeaTables.E);
         System.out.println("E(R0):             " + BitUtils.toHex(eR0));
 
-        int[] xorRk1 = BitUtils.xor(eR0, rk1);
+        int[] xorRk1 = BitUtils.xor(eR0, roundKeys[0]);
         System.out.println("E(R0) XOR RK1:     " + BitUtils.toHex(xorRk1));
 
-        // S-Box step
         DesRoundFunction roundFunc = new DesRoundFunction();
-        // Extract S-box output manually for vector check
         int[] sOutput32 = new int[32];
         for (int g = 0; g < 8; g++) {
             int b1 = xorRk1[g * 6];
@@ -78,12 +81,22 @@ public class Main {
         }
         System.out.println("S-box output:      " + BitUtils.toHex(sOutput32));
 
-        int[] fOut = roundFunc.apply(R0, rk1);
+        int[] fOut = roundFunc.apply(R, roundKeys[0]);
         System.out.println("F(R0, RK1) after P:" + BitUtils.toHex(fOut));
 
-        int[] R1 = BitUtils.xor(L0, fOut);
-        int[] L1 = R0;
-        System.out.println("After round 1:     L1 = " + BitUtils.toHex(L1) + "   R1 = " + BitUtils.toHex(R1));
+        System.out.println("\n--- All 8 Feistel Rounds Trace ---");
+        // Loop through Rounds 1 to 8
+        for (int round = 1; round <= 8; round++) {
+            int[] roundF = roundFunc.apply(R, roundKeys[round - 1]);
+            int[] nextR = BitUtils.xor(L, roundF);
+            int[] nextL = R;
+
+            L = nextL;
+            R = nextR;
+
+            System.out.printf("Round %d -> L%d = %s   R%d = %s%n",
+                    round, round, BitUtils.toHex(L), round, BitUtils.toHex(R));
+        }
 
         // Full Hbea Encryption Demo
         try {
